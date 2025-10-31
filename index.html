@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Packet Sniffer Simulation</title>
+  <style>
+    body {
+      background: #111;
+      color: #eee;
+      font-family: "Courier New", monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-start;
+      padding: 20px;
+    }
+    h1 {
+      color: #00ff9c;
+      margin-bottom: 10px;
+      text-shadow: 0 0 6px #00ff9c;
+    }
+    .row {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      gap: 20px;
+      margin-top: 15px;
+    }
+    .box {
+      background: #222;
+      border: 0.1px solid #00ff9c;
+      border-radius: 8px;
+      padding: 20px;
+      width: 250px;
+      min-height: 150px;
+      box-shadow: 0 0 10px #00ff9c33;
+    }
+    .sniffer {
+      width: 800px;
+      min-height: 200px;
+      margin-top: 30px;
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      background: #111;
+      color: #0f0;
+      border: 0.1px solid #0f0;
+      padding: 4px;
+      font-family: inherit;
+      resize: none;
+      border-radius: 4px;
+    }
+    button {
+      background: #0f0;
+      color: #000;
+      font-weight: bold;
+      border: none;
+      padding: 5px 10px;
+      margin: 5px 2px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .progress {
+      width: 250px;
+      text-align: center;
+      background: #000;
+      border: 2px solid #00ff9c;
+      border-radius: 6px;
+      color: #0f0;
+      font-weight: bold;
+      height: 25px;
+      line-height: 25px;
+      margin-bottom: 5px;
+    }
+    .preview-box {
+      background: #000;
+      border: 0.1px solid #0f0;
+      border-radius: 4px;
+      padding: 10px;
+      width: 250px;
+      height: 140px;
+      overflow-y: auto;
+      font-size: 13px;
+      color: #0f0;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #0f0;
+      font-size: 13px;
+      margin-top: 10px;
+    }
+    th, td {
+      border: 1px solid #0f0;
+      padding: 4px;
+      text-align: center;
+    }
+    .small-muted { color:#9fb6d6; font-size:12px; margin-top:6px; }
+  </style>
+</head>
+<body>
+  <h1>Packet Sniffer Simulation</h1>
+
+  <div class="row">
+    <!-- Host 1 -->
+    <div class="box" style="display: flex; flex-direction: column; align-items: center;">
+      <h3>Host 1</h3>
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div class="small-muted">Type message then click Send</div>
+      <textarea id="msg1" rows="3" placeholder="Type message..."></textarea><br>
+      </div>
+      <button onclick="sendMsg(1)">Send</button>
+      <div id="ack1" class="small-muted">Sender Checksum: —<br>Receiver Checksum: —<br>ACK: —</div>
+      <div id="recv1" class="small-muted">Last received: —</div>
+    </div>
+
+    <!-- Middle Progress + Preview -->
+    <div class="box" style="display: flex; flex-direction: column; align-items: center;">
+      <div id="progress" class="progress">Idle</div>
+      <div id="preview" class="preview-box">Packet preview will appear here...</div>
+    </div>
+
+    <!-- Host 2 -->
+    <div class="box" style="display: flex; flex-direction: column; align-items: center;">
+      <h3>Host 2</h3>
+            <div style="display: flex; flex-direction: column; gap: 4px;">
+      <div class="small-muted">Type message then click Send</div>
+      <textarea id="msg2" rows="3" placeholder="Type message..."></textarea><br>
+      </div>
+      <button onclick="sendMsg(2)">Send</button>
+      <div id="ack2" class="small-muted">Sender Checksum: —<br>Receiver Checksum: —<br>ACK: —</div>
+      <div id="recv2" class="small-muted">Last received: —</div>
+    </div>
+  </div>
+
+  <!-- Sniffer Section -->
+  <div class="box sniffer" style="display: flex; flex-direction: column; align-items: center;">
+    <h3>Sniffer</h3>
+    <div style="display: flex; flex-direction: row; align-items: center; gap: 16px;">
+    <button onclick="toggleSniff()">Toggle Sniff</button>
+    <button onclick="toggleTamper()">Toggle Tamper</button>
+    <button onclick="showLogs()">Show Logs</button>
+    <button onclick="clearLogs()">Clear Logs</button>
+    </div>
+    <div id="snifferStatus" class="small-muted">Sniff: OFF | Tamper: OFF</div>
+    <table id="logTable" style="display:none;">
+      <thead>
+        <tr><th>Seq</th><th>Time</th><th>Src</th><th>Dst</th><th>Chk</th><th>Tampered?</th></tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <script>
+    async function sendMsg(sender) {
+      const msg = document.getElementById('msg' + sender).value.trim();
+      if (!msg) return alert('Enter message');
+      const prog = document.getElementById('progress');
+      prog.textContent = 'Sending...';
+      prog.style.color = '#ff0';
+
+      // show preview
+      const pv = await fetch('/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg })
+      });
+      const preview = await pv.json();
+      document.getElementById('preview').textContent = preview.pretty;
+
+      let load = 0;
+      const anim = setInterval(() => {
+        load++;
+        prog.textContent = '[' + '='.repeat(load % 10) + ']';
+      }, 150);
+
+      const res = await fetch('/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ msg, sender })
+      });
+      const data = await res.json();
+      clearInterval(anim);
+      prog.textContent = 'Transmission Complete';
+
+      const recvShort = data.recv_checksum ? data.recv_checksum.slice(0, 8) : '—';
+      const senderShort = preview.pretty_ck ? preview.pretty_ck.slice(0,8) : '—';
+      // show checksums + ack
+      const ackDiv = document.getElementById('ack' + sender);
+      ackDiv.innerHTML = `Sender Checksum: ${senderShort}<br>Receiver Checksum: ${recvShort}<br>ACK: ${data.ack}`;
+
+      // determine received message to display at destination host
+      const target = sender === 1 ? 2 : 1;
+      const recvDiv = document.getElementById('recv' + target);
+      let receivedText = '—';
+
+      // 1) If server returned logs (sniff ON), use the most recent log's payload_preview as the actual received payload
+      if (data.logs && data.logs.length > 0) {
+        const last = data.logs[data.logs.length - 1];
+        // payload_preview exists on server logs
+        if (last.payload_preview) {
+          receivedText = last.payload_preview;
+        } else {
+          // fallback to short checksum note
+          receivedText = '(payload present — check logs)';
+        }
+      } else {
+        // 2) No logs available: if ACK == VALID, assume receiver got original message
+        if (data.ack === 'VALID') {
+          receivedText = msg;
+        } else if (data.ack === 'INVALID') {
+          // ACK invalid and no logs: show original but mark it suspicious
+          receivedText = msg + ' (possibly tampered)';
+        } else {
+          // unknown ack: show original
+          receivedText = msg;
+        }
+      }
+
+      recvDiv.textContent = 'Last received: ' + receivedText;
+
+      // update logs/table UI if sniff ON
+      if (document.getElementById('snifferStatus').textContent.includes('Sniff: ON')) {
+        if (data.logs) refreshLogs(data.logs);
+        else {
+          const r = await fetch('/logs'); const logs = await r.json(); refreshLogs(logs);
+        }
+        document.getElementById('logTable').style.display = 'table';
+      } else {
+        // if sniff OFF, keep table hidden and empty
+        document.querySelector('#logTable tbody').innerHTML = '';
+        document.getElementById('logTable').style.display = 'none';
+      }
+    }
+
+    async function toggleSniff() {
+      const r = await fetch('/toggle_sniff', { method: 'POST' });
+      const s = await r.json();
+      // read tamper state from server /state if available
+      try {
+        const st = await (await fetch('/state')).json();
+        document.getElementById('snifferStatus').textContent = `Sniff: ${s.sniff ? 'ON' : 'OFF'} | Tamper: ${st.tamper ? 'ON' : 'OFF'}`;
+      } catch(e) {
+        document.getElementById('snifferStatus').textContent = `Sniff: ${s.sniff ? 'ON' : 'OFF'} | Tamper: OFF`;
+      }
+      if(!s.sniff) {
+        document.querySelector('#logTable tbody').innerHTML = '';
+        document.getElementById('logTable').style.display = 'none';
+      }
+    }
+
+    async function toggleTamper() {
+      const r = await fetch('/toggle_tamper', { method: 'POST' });
+      const s = await r.json();
+      // read sniff state if available
+      try {
+        const st = await (await fetch('/state')).json();
+        document.getElementById('snifferStatus').textContent = `Sniff: ${st.sniff ? 'ON' : 'OFF'} | Tamper: ${s.tamper ? 'ON' : 'OFF'}`;
+      } catch(e) {
+        document.getElementById('snifferStatus').textContent = `Sniff: OFF | Tamper: ${s.tamper ? 'ON' : 'OFF'}`;
+      }
+    }
+
+    async function showLogs() {
+      const r = await fetch('/logs');
+      const logs = await r.json();
+      refreshLogs(logs);
+      document.getElementById('logTable').style.display = 'table';
+    }
+
+    async function clearLogs() {
+      await fetch('/clear_logs', { method: 'POST' });
+      document.querySelector('#logTable tbody').innerHTML = '';
+      document.getElementById('logTable').style.display = 'none';
+    }
+
+    function refreshLogs(logs) {
+      const tbody = document.querySelector('#logTable tbody');
+      tbody.innerHTML = '';
+      // expect logs to be trimmed array of objects
+      for (const l of logs.slice(-15).reverse()) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${l.seq}</td><td>${l.ts.split(' ')[1] || l.ts}</td><td>${l.src.replace('127.0.0.1','Host')}</td><td>${l.dst.replace('127.0.0.1','Host')}</td><td>${l.checksum_short}</td><td>${l.tampered ? 'Yes' : 'No'}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    // init: get state & logs if sniff ON
+    (async function init(){
+      try{
+        const s = await fetch('/state');
+        if (s.ok) {
+          const st = await s.json();
+          document.getElementById('snifferStatus').textContent = `Sniff: ${st.sniff ? 'ON' : 'OFF'} | Tamper: ${st.tamper ? 'ON' : 'OFF'}`;
+          if (st.sniff) {
+            const r = await fetch('/logs');
+            const logs = await r.json();
+            refreshLogs(logs);
+            document.getElementById('logTable').style.display = 'table';
+          }
+        }
+      }catch(e){ /* ignore if /state missing */ }
+    })();
+  </script>
+</body>
+</html>
